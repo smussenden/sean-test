@@ -1,0 +1,367 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>HCIJ Article Extractor</title>
+
+    <link rel="stylesheet" type="text/css" href="/static/bootstrap-5.0.2-dist/css/bootstrap.min.css" />
+    <script type="text/javascript" src="/static/bootstrap-5.0.2-dist/js/bootstrap.bundle.min.js"></script>
+    <!--script type="text/javascript" src="/static/bootstrap-5.0.2-dist/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js"></script-->
+
+    <link rel="stylesheet" type="text/css" href="/static/annotator.css" />
+
+    <!-- Link to the socket.io info -->
+    <!--script type="text/javascript" src="//code.jquery.com/jquery-1.4.2.min.js"></script-->
+    <script type="text/javascript" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.min.js"></script>
+
+    <!-- Used in view_navigator.js -->
+    <!--script src="/static/gpu-js@2.15.2/gpu-browser.js"></script-->
+    <script src="/static/gpu-js@2.15.2/gpu-browser.min.js"></script>
+    <script src="/static/numjs@0.15.1/dist/numjs.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.12.1.min.js"></script>
+
+    <script src="/static/openseadragon/openseadragon.js"></script>
+
+    <!-- Bootstrap -->
+<!--link href="/docs/5.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous"-->
+
+</head>
+
+<body class="previewpage">
+<h1>HCIJ Extractor<span style="color: #999"></span></h1>
+<h3>{{'Annotation '+page_details['mod_id']|string+' for: ' if page_details['mod_id'] != 0 }}{{ '"'+page_details['newspaper_name']+'"' if page_details['newspaper_name'] is not none else page_details['sn'] }}, {{ page_details['date'] }}, p{{ page_details['page'][4:] }}{{' ed'+page_details['edition'][3:] }}</h2>
+ <button class="btn btn-primary" id="save_button" disabled>Save</button>
+ <button class="btn btn-primary" id="save_new_button" disabled>Save New</button>
+ <button class="btn btn-primary" id="undo_button" disabled>Undo</button>
+ <button class="btn btn-primary" id="redo_button" disabled>Redo</button>
+ <button class="btn btn-primary" id="reset_button" disabled>Reset</button>
+ <button class="btn btn-primary" id="delete_button" disabled>Delete</button>
+ <button class="btn btn-primary" id="home_button" disabled>Home</button>
+ <a      class="btn btn-info popover-dismiss" id="help_button" tabindex="0" role="button" data-toggle="popover" data-trigger="focus">Help</a>
+
+ <div id = 'ui_container'>
+<div id='sidebar_container'>
+<!--div id='articles_container'-->
+  <div id='articles_container' class="flex-shrink-0 p-3 bg-white" style="width: 280px;">
+<div id='flags'>
+      <div id='articles_container_label'>
+          <svg class="bi me-2" width="30" height="24"><!--use xlink:href="#bootstrap"/--></svg>
+          <span class="fs-5 fw-semibold">Flags/Notes</span>
+      </div>
+    <ul class="list-unstyled ps-0">
+      <li class="mb-1">
+        <input type="checkbox" id="flag_irrelevant" name="flag_irrelevant" value="irrelevant" {{ "checked" if page_details['flag_irrelevant'] }}>
+          <label for="flag_irrelevant">No coverage on page.</label><br>
+      </li>
+
+      <li class="mb-1">
+    <input type="checkbox" id="flag_bad_layout" name="flag_bad_layout" value="bad_layout" {{ "checked" if page_details['flag_bad_layout'] }}>
+			<label for="flag_bad_layout">Bad layout</label><br>
+      </li>
+
+      <li class="mb-1">
+		<input type="checkbox" id="flag_other" name="flag_other" value="other" {{ "checked" if page_details['flag_other'] }}>
+			<label for="flag_other">Other</label><br>
+      </li>
+
+      <li class="mb-1">
+     <p> Notes: </p>
+    {%if page_details['notes'] == '' %}
+     <textarea id='notes' rows="10" cols="25" name="Notes" placeholder='Enter notes here' maxlength='500'></textarea>
+    {% else %}
+     <textarea id='notes' rows="10" cols="25" name="Notes" maxlength='500'>{{ page_details['notes'] }}</textarea>
+      {% endif %}   
+      </li>
+    </ul>
+</div>
+
+      <div id='articles_container_label'>
+          <svg class="bi me-2" width="30" height="24"><!--use xlink:href="#bootstrap"/--></svg>
+          <span class="fs-5 fw-semibold">Articles</span>
+      </div>
+    <ul class="list-unstyled ps-0">
+      <li id='article_box_0' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 1 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+      <li id='article_box_1' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 2 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+      <li id='article_box_2' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 3 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+      <li id='article_box_3' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 4 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+      <li id='article_box_4' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 5 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+      <li id='article_box_5' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 6 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+      <li id='article_box_6' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 7 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+      <li id='article_box_7' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 8 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+      <li id='article_box_8' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 9 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+      <li id='article_box_9' class="mb-1 tab_container">
+        <div class='article_label'>
+            <button class="btn btn-toggle align-items-center rounded collapsed" data-bs-toggle="collapse" data-bs-target="#home-collapse" aria-expanded="true">
+             Article 10 
+            </button>
+        </div>
+        <div class="collapse show tab_list" id="home-collapse">
+          <ul class="btn-toggle-nav list-unstyled fw-normal pb-1 small">
+          </ul>
+        </div>
+      </li>
+    </ul>
+  </div>
+    <!--h3> Articles </h3>
+
+    <div id='article_box_1' class='article_box'>
+        <p> Article 1 </p>
+        <div class='tab_container'>
+            <div class='overlay_tab'>
+                box 1
+            </div>
+            <div class='overlay_tab'>
+                box 2
+            </div>
+            <div class='overlay_tab'>
+                box 3
+            </div>
+        </div>
+    </div-->
+</div>
+
+<!--/div-->
+
+<div id="zoom-display" class="openseadragon passive"></div>
+ </div>
+
+    <script src="/static/article_manager.js"></script>
+    <script src="/static/view_navigator.js"></script>
+    <script src="/static/annotator.js"></script>
+<script type="text/javascript">
+    // Identifies this page:
+    page_details = {{ page_details|tojson|safe }};
+
+    activeArticle = 0; // by default we add overlays to article 1.
+    
+    myDragon = OpenSeadragon({
+    id:            "zoom-display",
+    prefixUrl:     "/static/images/",
+    maxZoomLevel: 7,
+
+    showNavigator:  true,
+    wrapHorizontal: false,
+
+    tileSources: [
+        {      
+            type: 'legacy-image-pyramid',      
+            levels:[
+                {
+                url: "{{ placeholder_img_url | safe }}",
+                width:  {{ img_width }},
+                height: {{ img_height }}
+                },
+            ],
+        },
+        {      
+            type: 'legacy-image-pyramid',      
+            levels:[
+                {
+                url: "{{ img_url | safe }}",
+                width:  {{ img_width }},
+                height: {{ img_height }}
+                }
+            ],
+        }
+    ],
+
+    overlays: [  
+       {% for boxdict in overlay_boxes %}
+       {
+           id: "{{ boxdict['ID'] }}",
+           x: {{ boxdict['HPOS'] }}, 
+           y: {{ boxdict['VPOS'] }}, 
+           width: {{ boxdict['WIDTH'] }}, 
+           height: {{ boxdict['HEIGHT'] }},
+           className: "{{ boxdict['element'] }}"
+       },
+       {% endfor %}
+        ]
+    });
+    
+  myDragon.imageLoader.timeout = 99999999999999999;
+    myDragon.addHandler('update-viewport', dragonReady);
+
+    // Needed for keyline color-coding:
+    keyline_stats = {  
+        {% for boxdict in overlay_boxes %}
+        {%if boxdict['element'][0:12] == 'kw_highlight' %}
+        "{{ boxdict['ID'] }}" : {{ boxdict['KEYWORD_STATS']|tojson|safe }},
+        {% endif %}
+        {% endfor %}
+    };
+
+    // Needed to load article membership state for overlay boxes:
+    articles_by_overlay_id = {
+       {% for boxdict in overlay_boxes %}
+               "{{ boxdict['ID'] }}" : "{{ boxdict['article_id'] }}",
+       {% endfor %}
+        };
+
+    // Set up the articles sidebar:
+    //articleManager = null; 
+
+    // (Re-)create the articleManager whenever we load a tile (image).
+    // This is called again, e.g., when we replace the placeholder img with the full-size img.
+    // Create the viewNavigator too, but only once (bc the keyline positions don't change).
+    viewNavigator = null;
+    myDragon.addHandler('open', function (e) {
+      console.log('open event');
+        articleManager = new ArticleManager(articles_by_overlay_id = articles_by_overlay_id);
+      if (!viewNavigator) {
+        console.log('viewnav setup start');
+        viewNavigator = new ViewNavigator(myDragon, keyline_stats);
+        console.log('viewnav setup done');
+      }
+    });
+
+    // Replace low-rez placeholder with full-size img,
+    // when it's loaded.
+    //
+    // We assume that only two imgs are loaded, so the second one
+    // to load will be the larger (full-size) one.
+    myDragon.addOnceHandler('full-size-loaded', function() {
+        // Keep the same view of the page:
+        var the_view = myDragon.viewport.getBounds(true);
+        myDragon.addOnceHandler('open', function() {
+            myDragon.viewport.fitBounds(the_view, true);
+        });
+
+        myDragon.open(myDragon.tileSources[1]);
+    });
+    num_tiles_loaded = 0;
+    myDragon.world.addHandler('add-item', function(event) {
+      var tiledImage = event.item;
+      tiledImage.addHandler('fully-loaded-change', function(et) {
+          if (num_tiles_loaded > 0) {
+              //myDragon.open(1);
+              myDragon.raiseEvent('full-size-loaded');
+          }
+          num_tiles_loaded ++;
+      });
+    });
+
+    $(document).ready(function() {
+
+      // Show/hide help popover
+      $('.popover-dismiss').popover({
+        sanitize: false,
+        container: 'body',
+        trigger: 'focus',
+        html: true,
+        title: 'Keyboard Shortcuts',
+        content: `
+        <h4> Smart Navigation </h4>
+        <p><b>tap <kbd>←</kbd>/<kbd>→</kbd> or <kbd>Shift</kbd>+<kbd>a</kbd>/<kbd>d</kbd></b>: jump between regions of interest (highest-value first).</p>
+        <h4> Highlighting content </h4>
+        <p><b>tap <kbd>0</kbd>-<kbd>9</kbd></b>: select which article to add highlights to.</p>
+        <p><b>HOLD <kbd>e</kbd> + click</b>: highlight overlay</p>
+        <p><b>HOLD <kbd>t</kbd> + click</b>: split overlay horizontally</p>
+ <p><strike><b>HOLD <kbd>v</kbd> + click</b>: split overlay vertically</strike> <b>Not available yet.</b></p>
+        <h4> Saving etc. </h4>
+        <p><b><kbd>ctrl</kbd>/<kbd>apple</kbd> + <kbd>s</kbd></b>: update existing page annotation</p>
+        <p><b><kbd>ctrl</kbd>/<kbd>apple</kbd> + shift + <kbd>s</kbd></b>: save new page annotation</p>
+        <p><b><kbd>ctrl</kbd>/<kbd>apple</kbd> + <kbd>z</kbd></b>: undo last action</p>
+        <p><b><kbd>ctrl</kbd>/<kbd>apple</kbd> + <kbd>shift</kbd> + <kbd>z</kbd></b>: redo last action</p>
+        `
+      })
+
+      console.log('setupSocketIO');
+         setupSocketIO();
+      console.log('setupEverythingElse');
+        setupEverythingElse(); // Lol
+    });
+</script>
+</body>
+</html>

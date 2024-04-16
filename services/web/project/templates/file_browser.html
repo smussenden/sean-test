@@ -1,0 +1,466 @@
+{% extends "base.html" %}
+
+{% block scripts %}
+
+<link rel="stylesheet" type="text/css" href="/static/file_browser.css" />
+<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.min.js"></script>
+<script type="text/javascript" src="//cdn.datatables.net/plug-ins/1.11.5/api/fnFindCellRowIndexes.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.16.1.min.js"></script>
+<script src="/static/file_browser.js"></script>
+<script>
+  // Tracks the last time we pinged the server
+  // for updated table rows.
+  last_update_time = '{{ initial_update_time }}';
+
+  // place "loading message after the table id=data
+  $('<h2 class="loading text-center">Loading table data...</h2>').insertAfter('#data');
+
+  //$('<h2 class="loading text-center">Loading...</h2>').appendTo('body');
+
+  pre_loading = true; //this is just to govern createdRow behavior...
+
+  /*~~~~~~ Initialize data for summary stats dashboard ~~~~~~*/
+  // TODO sanitize on server side to prevent XSS.
+  // This data is updated via socketio event.  Listener is defined in file_browser.js
+  // Dict of possible users - mapping id -> attributes (incl 'name')
+  users_dict = {{ users_dict|safe }};
+
+  // Number of UNIQUE pages annotated (i.e., don't include multiple annotations for the same
+  //filepath)
+  num_pages_annotated = {{ num_pages_annotated }};
+  // Total number of unique pages (i.e. the number we need to annotate)
+  num_original_pages = {{ num_original_pages }};
+  // Number of annotations per user (TOTAL -- including all different versions of the same filepath)
+  num_annotations_per_user = {{ num_annotations_per_user }};
+  // Number of annotations per user (UNIQUE -- i.e. only count the most recent annotation for each filepath)
+  num_unique_pages_annotated_per_user = {{ num_unique_pages_annotated_per_user }};
+  // Number of UNIQUE pages which are VALID (i.e. no disqualifying flags) AND have article
+  // highlights:
+  num_pages_going_to_the_dataset = {{ num_pages_going_to_the_dataset }};
+
+  // To properly align the columns of the subtable with the main table, we need to add the
+  //  columns that are in the main table but not in the subtable.
+  // These are from File.page_level_columns.
+  // Both are passed as jinja variables to the template.
+  const page_level_columns = {{ page_level_columns|safe }};
+  const annotation_level_columns = {{ annotation_level_columns|safe }};
+
+  /* Define formatting function for child rows */
+  function format(d) {
+    console.log('Page level columns: ', page_level_columns);
+    console.log('Annotation level columns: ', annotation_level_columns);
+    // `d` is the original data object for the row
+    // We need to add a row entry, with all the same columns as the main table,
+    //  using the data in d['annotation_entries'].
+    var subtable_html = '';
+
+    // We make the columns dynamically based on object keys.
+    // 'annotation_entries' covers only the annotation-level columns listed in File.annotation_level_columns.
+
+    // Need to pass each d.annotation_entry dict throught the preprocessRowData function,
+    //  to create any derived columns (e.g. 'user_name') and to format the data (e.g. 'created_at')
+    //  BUT these derived columns may depend upon page_level_columns, so add those too.
+    for (var i = 0; i < d.annotation_entries.length; i++) {
+      var row_data = d.annotation_entries[i];
+      // Add the page_level_columns to the row_data dict:
+      for (var j = 0; j < page_level_columns.length; j++) {
+        var col = page_level_columns[j];
+        row_data[col] = d[col];
+      }
+
+      // Now, get the derived columns:
+      row_data = preprocessRowData(row_data, page_level_columns);
+      d['annotation_entries'][i] = row_data;
+    }
+
+    // Sort annotation_entries by last_modified.
+    // Need to convert string (e.g. 2022-10-20 18:49:17.219082) to Date object.
+    d.annotation_entries.sort(function(a, b) {
+      return new Date(b.last_modified) - new Date(a.last_modified);
+    });
+    //// Sort annotation_entries in descending order of mod_id:
+    //d.annotation_entries.sort(function(a, b) {
+    //  return b.mod_id - a.mod_id;
+    //});
+
+    // Now build the html for the subtable, by iterating over the DataTable columns in order they
+    //  appear in the table:
+    var datatable_columns = $('#data').DataTable().columns().dataSrc();
+    for (var i = 0; i < d['annotation_entries'].length; i++) {
+      subtable_html += '<tr>';
+      var row_data = d.annotation_entries[i];
+      for (var j = 0; j < datatable_columns.length; j++) {
+        var col = datatable_columns[j];
+        var val = row_data[col];
+        if (val === undefined) {
+          val = '';
+        }
+        // Check column visibility and add display: none if needed:
+        // (Not sure why the first column is named 'null'.  hide it..
+        if (col === null || $('#data').DataTable().column(col + ':name').visible()) {
+              subtable_html += '<td>' + val + '</td>';
+          } else {
+            subtable_html += '<td style="display: none;">' + val + '</td>';
+            }
+      }
+      subtable_html += '</tr>';
+    }
+
+    //// Get columns by name:
+    //var datatable_columns = $('#data').DataTable().settings().init().columns;
+    //// Get column names which are present in the DataTable but not in file_ or annotation_level columns:
+    //var missing_columns = datatable_columns.filter(function(col) {
+    //  return !page_level_columns.includes(col.data) && !annotation_level_columns.includes(col.data);
+    //}).map(function(col) { return col.data; });
+
+    //console.log('Cant forget these!');
+    //console.log(missing_columns);
+
+    //// Create a template row with the values of the file-level columns already filled in.
+    //var subtable_row_base = [];
+    //page_level_columns.forEach(function(column) {
+    //  // Get the index in the table of the column we're looking for.
+    //  var col_index = table.column(column + ':name').index();
+    //  var col_val = d[col_index];
+
+    //  subtable_row_base[col_index] = col_val;
+    //  });
+
+    //// Create a row for each annotation entry by filling in the annotation_level_columns:
+    //// So, for each of the annotation_entries,
+    //// We create a new subtable_row copied from the original.
+    //// We iterate over the key, value pairs in the annotation_entry.
+    ////   For each k, v, we find the k's index, and place the v in the appropriate cell in the subtable_row.
+    //// Now we have an array of all the RAW values for this row, in the appropriate order.
+    //// BUT we still need to add the columns which are DERIVED from the raw values.
+    ////  These are: pag
+    //for (var i = 0; i < d['annotation_entries'].length; i++) {
+    //  var annotation_level_values = d['annotation_entries'][i];
+    //  subtable_html += '<tr>';
+    //  for (var key in d['annotation_entries'][i]) {
+    //    subtable_html += '<td>' + d['annotation_entries'][i][key] + '</td>';
+    //  }
+    //  subtable_html += '</tr>';
+    //}
+
+    // Convert to jQuery object so we can use DataTables API:
+    return $(subtable_html).toArray();
+  }
+
+  /* ~~~~~~~ Initialize behavior for user selection UI ~~~~~~~ */
+  //// Bind the user selection buttons in  #userModal to the setUser function.  The user_id is a data attribute
+  //// of each button.
+  //$('#userModal .btn').click(function() {
+  //    console.log('setting user to ' + $(this).attr('data-user-id'));
+  //  setUser($(this).attr('data-user-id'));
+  //});
+
+
+  //  // Show Modal for username when full page loads
+  //  $(window).on('load', function() {
+  //      //jQuery.noConflict();
+  //      $('#userModal').modal('show');
+  //      console.log('tried to show modal');
+  //  });
+
+    // Define a function for preprocessing the row data before it is added to the table:
+    function preprocessRowData(page_data) {
+      var page_link = '<a href="" onclick="openAnnotationPage(\'/pages/' + page_data.file_id + '/' + page_data.filepath + '/' + page_data.mod_id + '\'); return false;">link</a>';
+      var page_link_perma = '<a href="" onclick="openAnnotationPage(\'/pages/' + page_data.file_id + '/' + page_data.filepath + '/' + page_data.mod_id + '\'); return false;">link</a>';
+      page_data.page_link = page_link;
+      page_data.page_link_perma = page_link_perma;
+      // Truncate page notes to 40 characters.
+      page_data.notes = page_data.notes.substring(0, 40);
+
+      return page_data;
+    }
+  /* ~~~~~~~ Initialize the file browser table ~~~~~~~ */
+  $(document).ready(function () {
+      var table = $('#data').DataTable({
+          "ajax" : {
+              "url" : "/table_data_grouped",
+              "dataSrc" : function ( json ) {
+                  // AJAX data must be modified to include the columns 'page_link' and 'page_link_perma'
+                  // Also, truncate page notes to 40 characters.
+                  // Add those columns to the data returned by the server.
+                  // Page_link and page_link_perma link html:
+                  //  <a href="" onclick="openAnnotationPage('/pages/\{\{ page.file_id \}\}/\{\{ page.filepath\}\}/\{\{ page.mod_id \}\}'); return false;">link</a>
+
+                  // Add the columns 'page_link' and 'page_link_perma' to the data returned by the server.
+                  for (var i = 0; i < json.data.length; i++) {
+                      json.data[i] = preprocessRowData(json.data[i]);
+                  }
+                  return json.data;
+                }
+              },
+          "deferRender": true,
+          "autoWidth": true,
+
+          "initComplete" : function (settings, json ) {
+            // This is called when the table is done loading, including all the AJAX data.
+
+              $('h2.loading').remove();
+              $(this).show()
+
+              // This seems super janky, but this is how we add the filter boxes in line with the other table options:
+              // Insert after the PARENT of data_length:
+              // (data_filters_container is defined in the content block of the template)
+              $('#data_filters_container').insertAfter($('#data_length').parent());
+              $('#data_filters_container').show();
+
+              // Disable the subfilter radio when the Annotations option is selected in the radio:
+              $('#annotationsRadio').click(function() {
+                  //<input class="form-check-input" type="radio" id="originalsFilter_hasAnnotationRadio" name="originalsFilterRadio">
+                  $('#originalsFilter_hasAnnotationRadio').prop('disabled', true);
+                  $('#originalsFilter_noAnnotationRadio').prop('disabled', true);
+                  $('#originalsFilter_allRadio').prop('disabled', true);
+                });
+              // Enable the subfilter radio when the Originals option is selected in the radio:
+              $('#originalsRadio').click(function() {
+                  $('#originalsFilter_hasAnnotationRadio').prop('disabled', false);
+                  $('#originalsFilter_noAnnotationRadio').prop('disabled', false);
+                  $('#originalsFilter_allRadio').prop('disabled', false);
+                });
+
+              // Need to change the bootstrap classes of #data_length and #data_filer's parents to fit all in one row:
+              $('#data_length').parent().removeClass('col-sm-12 col-md-6');
+              $('#data_length').parent().addClass('col-sm-6 col-md-2');
+              $('#data_filter').parent().removeClass('col-sm-12 col-md-6');
+              $('#data_filter').parent().addClass('col-sm-6 col-md-2');
+
+              // Add filtering behavior.  'modified' rows have num_annotations > 0.
+              // Get the indices of the mod_id and num_annotations columns:
+              var mod_id_col_index = table.column('mod_id:name').index();
+              var num_annotations_col_index = table.column('num_annotations:name').index();
+              var flag_irrelevant_col_index = table.column('flag_irrelevant:name').index();
+              var flag_bad_layout_col_index = table.column('flag_bad_layout:name').index();
+              var flag_other_col_index = table.column('flag_other:name').index();
+
+              $.fn.dataTable.ext.search.push(function (settings, data, dataIndex) {
+                  var show_originals = $('#originalsRadio').is(':checked');
+                  var show_annotations = $('#annotationsRadio').is(':checked');
+
+                  // subfiler radio state:
+                  var show_all = $('#originalsFilter_allRadio').is(':checked');
+                  var show_has_annotations = $('#originalsFilter_hasAnnotationRadio').is(':checked');
+                  var show_no_annotations = $('#originalsFilter_noAnnotationRadio').is(':checked');
+
+                  var is_flagged = (data[flag_irrelevant_col_index] == 1 || data[flag_bad_layout_col_index] == 1 || data[flag_other_col_index] == 1);
+
+                  var mod_id = data[mod_id_col_index];
+                  var is_original = (mod_id == 0);
+                  var is_annotation = (mod_id > 0);
+                  is_annotation = (is_annotation || is_flagged);
+
+                  var original_has_annotation = (data[num_annotations_col_index] > 0);
+                  original_has_annotation = (original_has_annotation || is_flagged);
+
+                  if (show_originals) {
+                      if (show_all) {
+                          return is_original;
+                        } else if (show_has_annotations) {
+                            return is_original && original_has_annotation;
+                          } else if (show_no_annotations) {
+                              return is_original && !original_has_annotation;
+                            }
+                    } else if (show_annotations) {
+                        return is_annotation;
+                      }
+
+                });
+
+              // Instead of binding each one by ID, bind all of them by class, and subelements of data_filters_container:
+              $('#data_filters_container').on('click', '.form-check-input', function() {
+                  table.draw();
+                });
+              
+              table.draw(); // redraw the table based on the default filter settings
+
+              // Add filterin behavior for the main progress bar
+              // This is #mainProgressBar
+            },
+
+          order: [[1, 'asc']],
+
+          "columns": [
+              {
+                name: "child_dropdown",
+                className: "dt-control",
+                orderable: false,
+                data: null,
+                defaultContent: "",
+                visible: true,
+              },
+              {data: "locked", name: "locked", visible : false },
+              {data: "file_id", name: "file_id"},
+              {data: "page_link", name: "page_link"},
+              {data: "page_link_perma", name: "page_link_perma", visible : false},
+              {data: "mod_id", name: "mod_id", width : "10px"},
+              {data: "newspaper_name", name: "newspaper_name", width : "350px"},
+              {data: "batch", name: "batch", visible : false},
+              {data: "sn", name: "sn"},
+              {data: "date", name: "date"},
+              {data: "year", name: "year", visible : false},
+              {data: "month", name: "month", visible : false},
+              {data: "day", name: "day", width : "10px", visible : false},
+              {data: "edition", name: "edition"},
+              {data: "page", name: "page", width : "10px"},
+              {data: "deleted", name: "deleted", visible : false},
+              {data: "num_annotations", name: "num_annotations", visible : false},
+              {data: "last_modified", name: "last_modified", width : "250px"},
+              {data: "flag_irrelevant", name: "flag_irrelevant", width : "40px"},
+              {data: "flag_bad_layout", name: "flag_bad_layout", width : "40px"},
+              {data: "flag_other", name: "flag_other", width : "40px"},
+              {data: "notes", name: "notes"},
+              {data: "has_article_highlights", name: "has_article_highlights"},
+              {data: "last_modified_by", name: "last_modified_by", visible : false},
+              {data: "last_modified_by_name", name: "last_modified_by_name"},
+          ],
+
+        });
+      // Child show/hide behavior:
+      $('#data tbody').on('click', 'td.dt-control', function () {
+          var tr = $(this).closest('tr');
+          var row = table.row(tr);
+
+          // If the row has no annotation_entries then do nothing.
+            if (row.data().annotation_entries.length == 0) {
+                return;
+            }
+
+          if (row.child.isShown()) {
+              // This row is already open - close it
+              row.child.hide();
+              tr.removeClass('shown');
+            } else {
+                // Open this row
+                row.child(format(row.data())).show();
+                tr.addClass('shown');
+              }
+        });
+
+      //table.draw(); // redraw the table based on the default filter settings
+
+      pre_loading = false;
+      session_user = {{ session_user|tojson if session_user else 'null' }};
+      setupJS(); // NOTE from file_browser.js
+
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<!-- inline with the title, include a prompt for the user to log in (open the userModal)-->
+<div style="display: flex; justify-content: space-between; align-items: left;">
+  <h1>{{ title }}</h1> 
+  <!-- this string should be vertically aligned with the bottom of the h1 text -->
+  <div id="loggedInText" style="display: flex; align-items: flex-end; {% if not session_user %}display: none;{% endif %}">
+    <p>Logged in as <span id="userNameSpan" style="font-weight: bold; color: #007bff;">{{ session_user.name }}</span>.  <a id="logout" href="logout" >Not you?</a></p>
+  </div>
+</div>
+
+<div id="mainProgressBar" class="progress" style="margin-bottom: 15px;">
+  <!-- TODO add a tooltip with num annotated / left to annotate, in case bar is too small to show that text. -->
+  <!-- when user clicks the annotated / left-to-annotate segments of the progress bar, filter to show those rows -->
+  <div role="progressbar" style="width: {{ annotation_progress }}%;" aria-valuenow="{{ num_pages_annotated }}" aria-valuemin="0" aria-valuemax="{{ num_original_pages }}" class="progress-bar bg-success" onclick="filterShowAnnotated()">
+    {{ num_pages_annotated }} pages annotated
+  </div>
+  <div class="progress-bar progress-bar-striped" role="progressbar" style="width: {{ 100 - annotation_progress}}%" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100" onclick="filterShowNonAnnotated()">
+    {{ num_original_pages - num_pages_annotated }} pages left to annotate
+  </div>
+</div>
+
+<hr>
+
+  <!-- We add this html here but later move it into the table -->
+  <!-- it is hidden initially but later shown -->
+  <div class="col-sm-8 col-md-7" id="data_filters_container" style="display: none;">
+    <label>
+      <div class="dataTables_length" id="data_filters">
+        Filters:
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" id="originalsRadio" name="filtersRadio" checked>
+          <label class="form-check-label" for="originalsRadio">
+            Originals
+          </label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" id="annotationsRadio" name="filtersRadio">
+          <label class="form-check-label" for="annotationsRadio">
+            Annotations
+          </label>
+        </div>
+
+        <!-- Radio for showing originals with / without / both annotations -->
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" id="originalsFilter_hasAnnotationRadio" name="originalsFilterRadio">
+          <label class="form-check-label" for="originalsFilter_hasAnnotationRadio">
+            Has annotation
+          </label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" id="originalsFilter_noAnnotationRadio" name="originalsFilterRadio" checked>
+          <label class="form-check-label" for="originalsFilter_noAnnotationRadio">
+            No annotation
+          </label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" id="originalsFilter_allRadio" name="originalsFilterRadio">
+          <label class="form-check-label" for="originalsFilter_allRadio">
+            All
+          </label>
+        </div>
+      </div>
+    </label>
+  </div>
+
+  <table id="data" class="table table-striped" style="display:none">
+    <thead>
+      <tr>
+        <th></th>
+        <th>locked</th>
+        <th>id</th>
+        <th>link</th>
+        <th>link_perma</th>
+        <th>mod</td>
+        <!--th>filepath</th-->
+        <th>newspaper_name</th>
+        <th>batch</td>
+        <th>sn</td>
+        <th>date</td>
+        <th>year</td>
+        <th>month</td>
+        <th>day</td>
+        <th>ed</td>
+        <th>pg</td>
+        <th>deleted</td>
+        <th>num_annotations</td>
+        <th>last_modified</td>
+        <th>(f) irrelevant</td>
+        <th>(f) bad_layout</td>
+        <th>(f) other</td>
+        <th>notes</td>
+        <th>has_article_highlights</td>
+        <th>last_modified_by</td>
+        <th>last modified by</td>
+      </tr>
+    </thead>
+    <tbody>
+    </tbody>
+  </table>
+
+  <div id='statsDiv'>
+    <h3>Progress Stats</h3>
+    <!-- number of pages annotated per user (pie chart) -->
+    <!-- show inline -->
+    <!-- div id='numPagesAnnotatedPerUserDiv' class='statsplotdiv' style='display:none'>
+    </div-->
+    <div id='numUniquePagesAnnotatedPerUserDiv' class='statsplotdiv' style='display:none'>
+    </div>
+    <!-- number of pages which will end up in the dataset (i.e., have articles and don't have flags) -->
+    <div id='numPagesInDatasetDiv' style='display:none'>
+      <h4>Number of pages with article annotations for the dataset:</h4>
+    </div>
+  </div>
+
+  {% endblock %}

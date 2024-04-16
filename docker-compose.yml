@@ -1,0 +1,16 @@
+version: "3"
+
+services:
+  web:
+    build: ./services/web
+    command: gunicorn --bind "0.0.0.0:8000"  --worker-class eventlet -w 1 project.app:app --log-level debug
+      #command: python project/app.py
+    volumes:
+      - ./services/web/:/usr/src/app/
+      # NOTE - specify these env vars in a .env file (see ./env_template):
+      - ${PATH_TO_DB_FILE}:/usr/src/app/db_dir/
+      - ${PATH_TO_DB_BACKUPS}:/usr/src/app/backups/
+      - ${PATH_TO_GCLOUD_KEY_FILE}:/usr/src/app/keys/
+    ports:
+      - 80:8000 # remember, http-health-check is on port 80
+

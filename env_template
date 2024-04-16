@@ -1,0 +1,6 @@
+# Must specify these environment variables, which are used by docker-compose.yml.
+# Save this in the current directory as a new file, called ".env".
+
+PATH_TO_DB_FILE=
+PATH_TO_DB_BACKUPS=
+PATH_TO_GCLOUD_KEY_FILE=
